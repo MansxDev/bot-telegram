@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# environment & secret
+.env
+.env.local
+.env.*.local
+
+# database SQLite (WAL/SHM ikut)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# log & cache
+*.log
+npm-debug.log*
+.npm/
+.cache/
+
+# vercel
+.vercel
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/

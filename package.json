@@ -1,0 +1,42 @@
+{
+  "name": "bot-telegram",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Bot Telegram dengan grammY — commands, inline keyboard, conversations, SQLite/Redis, dan AI lewat 9Router. Bisa jalan long polling (lokal/VPS) atau webhook (Vercel).",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "start:webhook": "MODE=webhook node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node scripts/selfcheck.cjs",
+    "e2e": "node scripts/e2e.cjs",
+    "webhook:status": "node scripts/set-webhook.cjs status",
+    "webhook:set": "node scripts/set-webhook.cjs set",
+    "webhook:delete": "node scripts/set-webhook.cjs delete",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "grammy",
+    "9router",
+    "sqlite",
+    "redis",
+    "upstash",
+    "vercel",
+    "serverless"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/conversations": "^2.1.1",
+    "grammy": "^1.46.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^13.0.3"
+  }
+}

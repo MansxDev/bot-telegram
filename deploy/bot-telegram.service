@@ -1,0 +1,26 @@
+[Unit]
+Description=Bot Telegram (grammY) - bot-telegram
+Documentation=file:///home/mans/project/bot-telegram/README.md
+After=network-online.target
+Wants=network-online.target
+# 9Router dipakai untuk fitur AI; bot tetap jalan walau 9Router mati.
+After=9router.service
+Wants=9router.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mans/project/bot-telegram
+ExecStart=/usr/bin/node /home/mans/project/bot-telegram/src/index.js
+EnvironmentFile=/home/mans/project/bot-telegram/.env
+Environment=NODE_ENV=production
+Environment=PATH=/home/mans/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+# Beri waktu graceful shutdown (bot.stop + tutup SQLite) sebelum SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
