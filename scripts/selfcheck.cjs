@@ -719,6 +719,25 @@ async function main() {
     assert.ok(session.createdAt > 0);
   });
 
+  await test("api/setup: daftar command bisa dirakit tanpa store (tanpa Redis)", async () => {
+    // Endpoint /api/setup?action=commands merakit registry dengan app minimal
+    // ({ config, store: null, logger }) supaya tetap jalan walau storage bermasalah.
+    const config = configModule.buildConfig({
+      BOT_TOKEN: "123456789:AAabcdefghijklmnopqrstuvwxyz",
+      NINEROUTER_API_KEY: "sk-x",
+    });
+    const app = { config, store: null, logger: createLogger("error") };
+    const registry = new Registry(app);
+
+    registry.load(HANDLER_MODULES);
+    registerConversationCommands(app, registry);
+
+    const list = registry.commandList();
+    assert.equal(list.length, 16, `harus 16 command, dapat ${list.length}`);
+    assert.ok(list.every((item) => item.command && item.description));
+    assert.equal(registry.summary().callbacks, 14);
+  });
+
   await test("webhook: handler + allowed_updates", async () => {
     const config = configModule.buildConfig(process.env);
     const botStore = new Store(":memory:");

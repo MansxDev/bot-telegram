@@ -89,7 +89,7 @@ cp .env.example .env
 Cek cepat tanpa jaringan:
 
 ```bash
-npm run check   # 30 pemeriksaan offline (store sqlite + redis tiruan, config, 9Router, bot)
+npm run check   # 31 pemeriksaan offline (store sqlite + redis tiruan, config, 9Router, bot)
 npm run e2e     # 17 skenario end-to-end (command, callback, conversation, webhook, AI)
 ```
 
@@ -210,6 +210,9 @@ vercel login          # ikuti instruksi di browser
 vercel link           # pilih akun & buat project "bot-telegram"
 ```
 
+> Kalau `vercel` tidak dikenali, pastikan bin global npm ada di `PATH`
+> (`npm config get prefix` → tambahkan `.../bin`), atau jalankan lewat `npx vercel`.
+
 Set environment variable (production):
 
 ```bash
@@ -314,7 +317,7 @@ bot-telegram/
 ├── deploy/
 │   └── bot-telegram.service  # systemd user unit (template)
 ├── scripts/
-│   ├── selfcheck.cjs         # npm run check  (30 pemeriksaan offline)
+│   ├── selfcheck.cjs         # npm run check  (31 pemeriksaan offline)
 │   ├── e2e.cjs               # npm run e2e    (17 skenario end-to-end)
 │   ├── fake-upstash.cjs      # server Upstash tiruan untuk test driver Redis
 │   └── set-webhook.cjs       # CLI: status | set <url> | delete
@@ -370,6 +373,20 @@ Keduanya tidak butuh token Telegram asli, tidak menyentuh Telegram, dan tidak me
 - `scripts/selfcheck.cjs` menjalankan server Upstash tiruan (`scripts/fake-upstash.cjs`) untuk menguji driver Redis.
 - `scripts/e2e.cjs` meniru API Telegram dengan mem-patch `node-fetch` **sebelum** bot dibuat, karena plugin conversations membuat instance `Api` sendiri.
 
+Simulasi build Vercel (memastikan entry point serverless tetap jalan tanpa modul native `better-sqlite3`):
+
+```bash
+SIM=/tmp/vercel-sim
+mkdir -p "$SIM"
+tar --exclude=node_modules --exclude=.git --exclude=data --exclude=.env -cf - . | (cd "$SIM" && tar -xf -)
+cd "$SIM" && npm install --omit=dev --omit=optional   # di Vercel: installCommand di vercel.json
+node -e "
+const { createStore } = require('./src/store');
+require('./api/webhook.js'); require('./api/setup.js'); require('./src/runtime.js');
+console.log('entry point serverless bisa dimuat tanpa better-sqlite3 ✅');
+"
+```
+
 Selain itu, verifikasi manual yang dipakai saat pengembangan:
 
 ```bash
@@ -399,6 +416,8 @@ curl -s "$NINEROUTER_URL/v1/models" | head -c 200   # cek gateway AI
 
 **`better-sqlite3` gagal di-install / tidak terpasang**
 - Paket ini `optionalDependencies`. Di serverless pakai `STORE_DRIVER=redis`; di lokal jalankan `npm install` ulang (butuh build tools) atau pindah ke Redis.
+- Di Vercel paket ini sengaja **tidak** dipasang (`installCommand` memakai `--omit=optional`) dan
+  require-nya dibuat dinamis di `src/store/sqlite.js` supaya bundler tidak gagal saat build.
 
 **Webhook dibalas `401 "secret token is wrong"`**
 - `WEBHOOK_SECRET` di Vercel berbeda dengan yang dipakai saat `set-webhook`. Set ulang:

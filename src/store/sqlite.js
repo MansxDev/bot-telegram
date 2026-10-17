@@ -98,8 +98,12 @@ class SqliteStore {
   constructor(dbPath = "data/bot.db", options = {}) {
     let Database;
     try {
-      // Lazy require: better-sqlite3 bersifat opsional (tidak dipakai di Vercel).
-      Database = require("better-sqlite3");
+      // Lazy require + nama modul di variabel: bundler serverless (ncc di Vercel)
+      // tidak boleh mencoba me-resolve `better-sqlite3` secara statis, karena
+      // paket native ini sengaja tidak dipasang di sana (driver Vercel = redis).
+      // Kalau benar-benar tidak ada, error ditangkap dan diganti pesan jelas.
+      const moduleName = "better-sqlite3";
+      Database = require(moduleName);
     } catch (error) {
       throw new Error(
         `better-sqlite3 tidak terpasang (${error.message}). Jalankan "npm install" ` +
