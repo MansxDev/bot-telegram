@@ -1,0 +1,36 @@
+[Unit]
+Description=Cloudflare Tunnel untuk 9Router (dipakai bot-telegram saat bot di Vercel)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/
+After=network-online.target
+Wants=network-online.target
+# 9Router harus hidup lebih dulu: tunnel hanya meneruskan ke port lokal.
+After=9router.service
+Wants=9router.service
+
+[Service]
+Type=simple
+# Tunnel "quick" tanpa akun Cloudflare. URL publik acak (xxx.trycloudflare.com)
+# dan BERUBAH setiap kali service ini restart — karena itu URL-nya disimpan ke
+# database bot dengan `node scripts/set-router9-url.cjs <url>`, bukan ke
+# environment Vercel (supaya tidak perlu redeploy).
+ExecStart=%h/.local/bin/cloudflared tunnel --url http://127.0.0.1:20128 --no-autoupdate
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+
+# Cara pakai:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/cloudflared-tunnel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now cloudflared-tunnel
+#
+# Ambil URL-nya:
+#   journalctl --user -u cloudflared-tunnel -n 200 --no-pager \
+#     | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1
+#
+# Daftarkan ke database bot (tanpa redeploy Vercel):
+#   node scripts/set-router9-url.cjs "https://<url-tunnel>"

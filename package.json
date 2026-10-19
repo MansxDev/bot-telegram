@@ -17,6 +17,8 @@
     "webhook:status": "node scripts/set-webhook.cjs status",
     "webhook:set": "node scripts/set-webhook.cjs set",
     "webhook:delete": "node scripts/set-webhook.cjs delete",
+    "router9": "node scripts/set-router9-url.cjs",
+    "tunnel:test": "node --env-file=.env scripts/verify-tunnel.cjs",
     "deploy": "vercel --prod"
   },
   "keywords": [

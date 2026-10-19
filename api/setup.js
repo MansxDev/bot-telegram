@@ -7,9 +7,14 @@
  *   GET /api/setup?key=<SETUP_SECRET>                         -> status bot + webhook
  *   GET /api/setup?key=<SETUP_SECRET>&action=set&url=https://x.vercel.app
  *   GET /api/setup?key=<SETUP_SECRET>&action=delete            -> hapus webhook
+ *   GET /api/setup?key=<SETUP_SECRET>&action=commands          -> pasang menu command
+ *   GET /api/setup?key=<SETUP_SECRET>&action=router-url        -> lihat URL 9Router aktif
+ *   GET /api/setup?key=<SETUP_SECRET>&action=set-router-url&url=https://x.trycloudflare.com
  *
- * Sengaja TIDAK menyentuh store (Redis) supaya tetap bisa dipakai untuk
- * diagnosis walau penyimpanan sedang bermasalah.
+ * Untuk aksi utama (status/set/delete/commands) store sengaja TIDAK disentuh
+ * supaya tetap bisa dipakai untuk diagnosis walau penyimpanan sedang bermasalah.
+ * Store hanya dibuat oleh aksi router-url (override URL 9Router) dan status,
+ * dan bila gagal, sisanya tetap dilaporkan.
  */
 
 const crypto = require("node:crypto");
@@ -17,6 +22,68 @@ const { Api } = require("grammy");
 
 const { buildConfig, validateConfig, configWarnings } = require("../src/config");
 const { registerWebhook } = require("../src/webhook");
+const { applyStoredOverrides } = require("../src/runtime");
+const { Router9 } = require("../src/services/router9");
+
+/** Buat store sejenak, pakai, lalu tutup (serverless: tanpa state global). */
+async function withStore(config, fn) {
+  const { createStore } = require("../src/store");
+  const store = await createStore(config);
+  try {
+    return await fn(store);
+  } finally {
+    await store.close().catch(() => {});
+  }
+}
+
+/** Cek apakah 9Router benar-benar bisa dijangkau dari mesin ini. */
+async function probeRouter9(config, baseUrl) {
+  const router = new Router9({
+    baseUrl,
+    apiKey: config.router9.apiKey,
+    model: config.router9.model,
+    timeoutMs: Math.min(config.router9.timeoutMs, 10_000),
+    maxRetries: 0,
+  });
+
+  try {
+    const health = await router.health();
+    return { reachable: Boolean(health.ok), models: health.models ?? 0, error: health.error ?? null };
+  } catch (error) {
+    return { reachable: false, models: 0, error: error?.message ?? String(error) };
+  }
+}
+
+/** Ringkasan konfigurasi 9Router: env, override dari store, dan hasil probe. */
+async function router9Report(config) {
+  const report = {
+    envUrl: config.router9.baseUrl,
+    storedUrl: null,
+    effectiveUrl: config.router9.baseUrl,
+    model: config.router9.model,
+    apiKeyTerpasang: Boolean(config.router9.apiKey),
+    reachable: null,
+    models: 0,
+    error: null,
+  };
+
+  try {
+    report.storedUrl = (await withStore(config, (store) => store.getMeta("router9_url", ""))) || null;
+    // applyStoredOverrides menimpa config dengan nilai store (kalau ada).
+    await applyStoredOverrides(config, { getMeta: async () => report.storedUrl, setMeta: async () => {} }, console);
+    report.effectiveUrl = config.router9.baseUrl;
+    report.model = config.router9.model;
+  } catch (error) {
+    report.error = `gagal membaca store: ${error?.message ?? String(error)}`;
+  }
+
+  const probe = await probeRouter9(config, report.effectiveUrl);
+  report.reachable = probe.reachable;
+  report.models = probe.models;
+  if (!report.error) report.error = probe.error;
+
+  return report;
+}
 
 /** Perbandingan string constant-time (anti timing attack). */
 function safeEqual(a, b) {
@@ -109,8 +176,42 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // ---- override URL 9Router (dipakai bersama Cloudflare Tunnel) ----
+    if (action === "set-router-url" || action === "set-router9") {
+      const target = String(url.searchParams.get("url") ?? "").trim().replace(/\/+$/, "");
+      if (!/^https?:\/\//i.test(target)) {
+        send(400, {
+          ok: false,
+          error: "Parameter `url` wajib berisi http(s)://… (mis. https://xxx.trycloudflare.com)",
+        });
+        return;
+      }
+
+      const model = String(url.searchParams.get("model") ?? "").trim();
+
+      await withStore(config, async (store) => {
+        await store.setMeta("router9_url", target);
+        if (model) await store.setMeta("router9_model", model);
+      });
+
+      const probe = await probeRouter9(config, target);
+      send(200, {
+        ok: true,
+        action,
+        message: "URL 9Router disimpan di database. Efeknya langsung untuk request berikutnya (tanpa redeploy).",
+        router9: { storedUrl: target, storedModel: model || null, model: model || config.router9.model, ...probe },
+      });
+      return;
+    }
+
+    if (action === "router-url" || action === "get-router-url" || action === "router9") {
+      send(200, { ok: true, action, envUrl: config.router9.baseUrl, router9: await router9Report(config) });
+      return;
+    }
+
     // default: status
     const [me, webhookInfo] = await Promise.all([api.getMe(), api.getWebhookInfo()]);
+    const router9 = await router9Report(config);
 
     send(200, {
       ok: true,
@@ -126,6 +227,7 @@ module.exports = async function handler(req, res) {
       },
       problems,
       warnings: configWarnings(config),
+      router9,
     });
   } catch (error) {
     send(500, { ok: false, action, error: error?.message ?? String(error) });

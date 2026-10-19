@@ -738,6 +738,67 @@ async function main() {
     assert.equal(registry.summary().callbacks, 14);
   });
 
+  await test("runtime: override URL 9Router dari store menang atas env", async () => {
+    const { applyStoredOverrides } = require("../src/runtime");
+    const messages = [];
+    const quietLogger = {
+      info: (message) => messages.push(message),
+      warn: (message) => messages.push(message),
+      error: () => {},
+      debug: () => {},
+    };
+
+    const config = configModule.buildConfig({
+      BOT_TOKEN: "123456789:AAabcdefghijklmnopqrstuvwxyz",
+      NINEROUTER_URL: "https://env.example.com",
+      NINEROUTER_MODEL: "gh/gpt-4o-mini",
+    });
+
+    const store = new Store(":memory:");
+
+    // Store kosong: environment tetap dipakai.
+    assert.deepEqual(await applyStoredOverrides(config, store, quietLogger), []);
+    assert.equal(config.router9.baseUrl, "https://env.example.com");
+
+    // Store terisi: menang, trailing slash dinormalkan, model ikut.
+    await store.setMeta("router9_url", "https://tunnel.example.com/");
+    await store.setMeta("router9_model", "gh/gpt-4.1");
+    const applied = await applyStoredOverrides(config, store, quietLogger);
+
+    assert.equal(applied.length, 2, "harus melaporkan 2 override");
+    assert.equal(config.router9.baseUrl, "https://tunnel.example.com");
+    assert.equal(config.router9.model, "gh/gpt-4.1");
+
+    // Nilai sampah tidak boleh menimpa environment.
+    await store.setMeta("router9_url", "bukan-url");
+    const fresh = configModule.buildConfig({
+      BOT_TOKEN: "123456789:AAabcdefghijklmnopqrstuvwxyz",
+      NINEROUTER_URL: "https://env.example.com",
+    });
+    assert.deepEqual(await applyStoredOverrides(fresh, store, quietLogger), []);
+    assert.equal(fresh.router9.baseUrl, "https://env.example.com");
+
+    // Store bermasalah tidak boleh mematikan bootstrap.
+    const brokenStore = {
+      getMeta: async () => {
+        throw new Error("redis down");
+      },
+    };
+    assert.deepEqual(await applyStoredOverrides(fresh, brokenStore, quietLogger), []);
+    assert.ok(
+      messages.some((message) => message.includes("gagal membaca override")),
+      "kegagalan store harus tercatat sebagai warning",
+    );
+
+    // setMeta kosong (dipakai `--clear`) mengembalikan ke nilai environment.
+    await store.setMeta("router9_url", "");
+    await store.setMeta("router9_model", "");
+    assert.deepEqual(await applyStoredOverrides(fresh, store, quietLogger), []);
+    assert.equal(fresh.router9.baseUrl, "https://env.example.com");
+
+    await store.close();
+  });
+
   await test("webhook: handler + allowed_updates", async () => {
     const config = configModule.buildConfig(process.env);
     const botStore = new Store(":memory:");

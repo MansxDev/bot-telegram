@@ -7,6 +7,43 @@ const { createBot } = require("./bot");
 const { createWebhookHandler } = require("./webhook");
 
 /**
+ * Terapkan nilai yang tersimpan di store (DB) sebagai override konfigurasi.
+ *
+ * Berguna untuk URL 9Router: URL Cloudflare Tunnel "quick" berubah setiap
+ * restart, jadi menyimpannya di store berarti cukup menjalankan
+ * `node scripts/set-router9-url.cjs <url>` — tanpa redeploy Vercel.
+ *
+ * Prioritas: nilai di store > environment variable.
+ *
+ * @returns {Promise<Array<{ key: string, from: string, to: string }>>}
+ */
+async function applyStoredOverrides(config, store, logger) {
+  const applied = [];
+
+  try {
+    const storedUrl = String((await store.getMeta("router9_url", "")) || "").trim().replace(/\/+$/, "");
+    if (storedUrl && /^https?:\/\/.+/i.test(storedUrl) && storedUrl !== config.router9.baseUrl) {
+      applied.push({ key: "router9_url", from: config.router9.baseUrl, to: storedUrl });
+      config.router9.baseUrl = storedUrl;
+    }
+
+    const storedModel = String((await store.getMeta("router9_model", "")) || "").trim();
+    if (storedModel && storedModel !== config.router9.model) {
+      applied.push({ key: "router9_model", from: config.router9.model, to: storedModel });
+      config.router9.model = storedModel;
+    }
+  } catch (error) {
+    logger.warn(`gagal membaca override dari store: ${error.message}`);
+  }
+
+  for (const item of applied) {
+    logger.info(`override dari store: ${item.key} = ${item.to} (menggantikan ${item.from})`);
+  }
+
+  return applied;
+}
+
+/**
  * Bootstrap bersama untuk semua mode:
  *   - polling (lokal / VPS): src/index.js -> bot.start()
  *   - webhook (Vercel):      api/webhook.js -> handleWebhook(req, res)
@@ -31,9 +68,13 @@ async function bootstrap(options = {}) {
     throw error;
   }
 
+  const store = await createStore(config);
+
+  // Override dari DB dibaca SEBELUM createBot: klien 9Router dibangun dari config.
+  await applyStoredOverrides(config, store, logger);
+
   for (const warning of configWarnings(config)) logger.warn(`konfigurasi: ${warning}`);
 
-  const store = await createStore(config);
   const { bot, app, registry } = await createBot({ config, store, logger });
 
   // Siapkan info bot + daftar command di menu Telegram.
@@ -105,4 +146,4 @@ async function resetRuntime() {
   if (runtime) await runtime.close().catch(() => {});
 }
 
-module.exports = { bootstrap, getRuntime, resetRuntime };
+module.exports = { bootstrap, getRuntime, resetRuntime, applyStoredOverrides };
